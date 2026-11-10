@@ -383,7 +383,58 @@ def show_dashboard(result: pd.DataFrame, stats: dict):
         hide_index=True
     )
 
-    
+   
+    st.subheader("Desglose de registros por categoría")
+
+    categorias_disponibles = summary[TARGET_NAME].tolist()
+
+    categoria_seleccionada = st.selectbox(
+        "Selecciona una categoría para consultar sus registros:",
+        options=categorias_disponibles,
+        key="categoria_desglose"
+    )
+
+    # Identificar la columna del monto
+    actual_col = next(
+        (
+            col for col in result.columns
+            if str(col).strip().casefold() in ["actual", "monto"]
+        ),
+        None
+    )
+
+    if actual_col is not None:
+        detalle = result[
+            (result[TARGET_NAME] == categoria_seleccionada) &
+            (result[TARGET_NAME].notna())
+        ].copy()
+
+        detalle[actual_col] = pd.to_numeric(
+            detalle[actual_col], errors="coerce"
+        ).fillna(0)
+
+        detalle = detalle.sort_values(
+            actual_col,
+            ascending=False
+        )
+
+        st.write(
+            f"Registros de la categoría: **{categoria_seleccionada}**"
+        )
+
+        st.metric(
+            "Cantidad de registros",
+            f"{len(detalle):,}"
+        )
+
+        st.dataframe(
+            detalle,
+            use_container_width=True,
+            hide_index=False
+        )
+    else:
+        st.warning("No se encontró la columna Actual o Monto.")
+ 
     
     left, right = st.columns(2)
 
