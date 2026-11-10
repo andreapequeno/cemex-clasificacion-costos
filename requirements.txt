@@ -12,3 +12,6 @@ openpyxl
 # Agrega aquí las bibliotecas de los estimadores que realmente contiene
 # el objeto ensamble (por ejemplo xgboost o lightgbm), con sus versiones
 # verificadas en Colab. No instalar estimadores que el ensamble no utilice
+
+streamlit[auth]
+httpx
