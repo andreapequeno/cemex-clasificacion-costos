@@ -478,14 +478,34 @@ def main():
     st.divider()
     show_dashboard(result, stats)
 
+
     if stats["pendientes"] > 0:
         st.warning(
-            f"{stats['pendientes']:,} registros quedaron pendientes porque "
-            "contienen valores que no aparecieron en el entrenamiento. "
+            f"{stats['pendientes']:,} registros quedaron pendientes "
+            "porque contienen valores que no aparecieron en el entrenamiento. "
             "No se inventaron códigos ni se asignaron categorías."
         )
-        st.write("Valores no reconocidos por variable:")
-        st.json(stats["unknown_summary"])
+
+        st.subheader("Registros pendientes de clasificación")
+
+        # Filtrar los registros que no pudieron clasificarse
+        registros_pendientes = result[
+            result["Estado de clasificación"].str.startswith(
+                "Pendiente", na=False
+            )
+        ].copy()
+
+        st.caption(
+            f"Se encontraron {len(registros_pendientes):,} registros "
+            "con valores no reconocidos por los codificadores."
+        )
+
+        # Mostrar todas las columnas del archivo original
+        st.dataframe(
+            registros_pendientes,
+            use_container_width=True,
+            hide_index=False
+        )
 
     st.subheader("Resultado de la clasificación")
     st.dataframe(result.head(100), use_container_width=True)
