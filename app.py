@@ -368,27 +368,35 @@ def show_dashboard(result: pd.DataFrame, stats: dict):
     )
 
     
+    
     left, right = st.columns(2)
 
     with left:
         fig_bar = px.bar(
             summary.sort_values(
-                "Cantidad de registros", ascending=False
+                "Monto de la categoría", ascending=False
             ),
             x=TARGET_NAME,
-            y="Cantidad de registros",
-            title="Cantidad de registros por categoría",
-            text="Cantidad de registros",
+            y="Monto de la categoría",
+            title="Monto ($) por categoría de costo",
+            text="Monto de la categoría",
         )
-        fig_bar.update_layout(xaxis_tickangle=-35)
+        fig_bar.update_layout(
+            xaxis_tickangle=-35,
+            yaxis_title="Monto ($)"
+        )
+        fig_bar.update_traces(
+            texttemplate="$%{y:,.2f}",
+            textposition="outside"
+        )
         st.plotly_chart(fig_bar, use_container_width=True)
 
     with right:
         fig_pie = px.pie(
             summary,
             names=TARGET_NAME,
-            values="Monto de la categoría",
-            title="Distribución del monto por categoría",
+            values="Cantidad de registros",
+            title="Distribución de registros por categoría",
         )
         st.plotly_chart(fig_pie, use_container_width=True)
 
