@@ -330,9 +330,26 @@ def show_dashboard(result: pd.DataFrame, stats: dict):
         st.info("No hay registros clasificados para mostrar.")
         return
 
-    classified["Actual"] = pd.to_numeric(
-        classified["Actual"], errors="coerce"
+
+    actual_col = next(
+        (
+            col for col in classified.columns
+            if str(col).strip().casefold() in ["actual", "monto"]
+        ),
+        None
+    )
+
+    if actual_col is None:
+        st.error(
+            "No se encontró la columna del monto. "
+            "Se esperaba una columna llamada 'Actual' o 'Monto'."
+        )
+        return
+
+    classified[actual_col] = pd.to_numeric(
+        classified[actual_col], errors="coerce"
     ).fillna(0)
+
 
     summary = (
         classified
