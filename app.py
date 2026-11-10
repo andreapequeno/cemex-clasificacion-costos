@@ -350,14 +350,13 @@ def show_dashboard(result: pd.DataFrame, stats: dict):
         classified[actual_col], errors="coerce"
     ).fillna(0)
 
-
     summary = (
         classified
         .groupby(TARGET_NAME)
         .agg(
             **{
                 "Cantidad de registros": (TARGET_NAME, "size"),
-                "Monto de la categoría": ("Actual", "sum")
+                "Monto de la categoría": (actual_col, "sum")
             }
         )
         .reset_index()
