@@ -324,21 +324,48 @@ def show_dashboard(result: pd.DataFrame, stats: dict):
     c2.metric("Registros clasificados", f"{stats['clasificados']:,}")
     c3.metric("Registros pendientes", f"{stats['pendientes']:,}")
 
-    classified = result[TARGET_NAME].dropna()
+    classified = result[result[TARGET_NAME].notna()].copy()
+
     if classified.empty:
         st.info("No hay registros clasificados para mostrar.")
         return
 
-    summary = (
-        classified.value_counts()
-        .rename_axis(TARGET_NAME)
-        .reset_index(name="Cantidad")
-    )
-    summary["Porcentaje sobre total"] = (
-        summary["Cantidad"] / max(stats["total"], 1) * 100
-    ).round(2)
+    classified["Actual"] = pd.to_numeric(
+        classified["Actual"], errors="coerce"
+    ).fillna(0)
 
-    st.dataframe(summary, use_container_width=True, hide_index=True)
+    summary = (
+        classified
+        .groupby(TARGET_NAME)
+        .agg(
+            **{
+                "Cantidad de registros": (TARGET_NAME, "size"),
+                "Monto de la categoría": ("Actual", "sum")
+            }
+        )
+        .reset_index()
+    )
+
+    monto_total = summary["Monto de la categoría"].sum()
+
+    summary["Porcentaje sobre monto total"] = (
+        summary["Monto de la categoría"] / monto_total * 100
+        if monto_total != 0 else 0
+    )
+
+    summary = summary.sort_values(
+        "Monto de la categoría", ascending=False
+    )
+
+    st.dataframe(
+        summary.style.format({
+            "Cantidad de registros": "{:,.0f}",
+            "Monto de la categoría": "${:,.2f}",
+            "Porcentaje sobre monto total": "{:.2f}%"
+        }),
+        use_container_width=True,
+        hide_index=True
+    )
 
     left, right = st.columns(2)
 
