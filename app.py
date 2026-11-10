@@ -18,7 +18,7 @@ import plotly.express as px
 import streamlit as st
 
 
-APP_TITLE = "Reclasificaicon automatica de costos CEMEX - By UDEM"
+APP_TITLE = "Reclasificación automática de costos CEMEX - By UDEM"
 
 MODEL_PATH = Path("modelo/modelo_cemex.joblib")
 ARTIFACTS_PATH = Path("modelo/codificadores_cemex.joblib")
@@ -62,26 +62,31 @@ def check_access() -> None:
     return
 
 def show_confidentiality_notice() -> bool:
-    st.subheader("Aviso de confidencialidad y resguardo de información")
-    st.warning(
-        """
-**La información procesada es confidencial y de uso exclusivamente empresarial.**
 
-- Solo se deben cargar archivos para los que se cuente con autorización.
-- Los datos se utilizarán únicamente para clasificar y analizar costos.
-- No se permite compartir, distribuir ni divulgar información a personas
-  o terceros no autorizados.
-- El usuario es responsable de contar con autorización para utilizar los archivos.
-- No se deben cargar contraseñas ni información ajena al propósito del proyecto.
-- No se deben publicar archivos SAP, resultados ni modelos en servicios externos
-  sin autorización expresa de CEMEX.
-- La aplicación no escribe intencionalmente el archivo cargado en disco ni en
-  una base de datos. El archivo y el resultado permanecen temporalmente en la
-  sesión para mostrar resultados y permitir la descarga.
-- Esta medida no garantiza por sí sola la eliminación de registros técnicos,
-  cachés, respaldos o datos que pueda retener el proveedor de alojamiento.
-"""
-    )
+st.subheader("Confidencialidad y protección de la información")
+
+st.warning(
+    """
+    La información cargada en esta aplicación es de carácter
+    confidencial y está destinada exclusivamente al desarrollo
+    de las actividades autorizadas del proyecto.
+
+    - **Acceso restringido:** únicamente las personas incluidas
+      en la lista de usuarios autorizados pueden acceder a la aplicación.
+
+    - **Uso de la información:** los archivos se utilizan
+      exclusivamente para la clasificación y análisis de los costos
+      del área de transporte propio de CEMEX.
+
+    - **Confidencialidad:** la información no se comparte, distribuye ni divulga a personas no autorizadas..
+
+    - **Responsabilidad:** cada usuario debe contar con autorización
+      para cargar y procesar los archivos.
+
+    - **Resguardo:** no se deben utilizar los archivos para fines
+      distintos a los establecidos en el proyecto.
+    """
+)
 
     return st.checkbox(
         "He leído y acepto el aviso. Confirmo que tengo autorización para "
@@ -364,8 +369,7 @@ def main():
 
     st.title(APP_TITLE)
     st.write(
-        "Aplicación para clasificar registros de costos operativos descargados "
-        "de SAP mediante el modelo Ensamble Soft Voting previamente entrenado."
+        "Aplicación para clasificar registros de costos "Otros" del área de transporte propio, descargados de SAP, mediante el modelo Ensamble previamente entrenado con datos históricos del 2025."
     )
     st.info(
         "El modelo ya está entrenado. Esta aplicación únicamente transforma "
