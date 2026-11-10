@@ -62,31 +62,30 @@ def check_access() -> None:
     return
 
 def show_confidentiality_notice() -> bool:
+    st.subheader("Confidencialidad y protección de la información")
 
-st.subheader("Confidencialidad y protección de la información")
-
-st.warning(
-    """
-    La información cargada en esta aplicación es de carácter
-    confidencial y está destinada exclusivamente al desarrollo
-    de las actividades autorizadas del proyecto.
-
-    - **Acceso restringido:** únicamente las personas incluidas
-      en la lista de usuarios autorizados pueden acceder a la aplicación.
-
-    - **Uso de la información:** los archivos se utilizan
-      exclusivamente para la clasificación y análisis de los costos
-      del área de transporte propio de CEMEX.
-
-    - **Confidencialidad:** la información no se comparte, distribuye ni divulga a personas no autorizadas..
-
-    - **Responsabilidad:** cada usuario debe contar con autorización
-      para cargar y procesar los archivos.
-
-    - **Resguardo:** no se deben utilizar los archivos para fines
-      distintos a los establecidos en el proyecto.
-    """
-)
+    st.warning(
+        """
+        La información cargada en esta aplicación es de carácter
+        confidencial y está destinada exclusivamente al desarrollo
+        de las actividades autorizadas del proyecto.
+    
+        - **Acceso restringido:** únicamente las personas incluidas
+          en la lista de usuarios autorizados pueden acceder a la aplicación.
+    
+        - **Uso de la información:** los archivos se utilizan
+          exclusivamente para la clasificación y análisis de los costos
+          del área de transporte propio de CEMEX.
+    
+        - **Confidencialidad:** la información no se comparte, distribuye ni divulga a personas no autorizadas..
+    
+        - **Responsabilidad:** cada usuario debe contar con autorización
+          para cargar y procesar los archivos.
+    
+        - **Resguardo:** no se deben utilizar los archivos para fines
+          distintos a los establecidos en el proyecto.
+        """
+    )
 
     return st.checkbox(
         "He leído y acepto el aviso. Confirmo que tengo autorización para "
