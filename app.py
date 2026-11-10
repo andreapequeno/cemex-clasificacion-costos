@@ -1,8 +1,8 @@
 """
 Reclasificaicon automatica de costos CEMEX - By UDEM
 
-La aplicación NO entrena el modelo. Carga el ensamble previamente entrenado
-y los codificadores exportados desde el notebook de Google Colab.
+Clasifica archivos SAP con el ensamble Soft Voting previamente entrenado.
+No entrena el modelo ni aplica SMOTE a los archivos nuevos.
 """
 
 from __future__ import annotations
@@ -10,76 +10,77 @@ from __future__ import annotations
 from io import BytesIO
 from pathlib import Path
 import os
-import json
+
 import joblib
+import numpy as np
 import pandas as pd
-import streamlit as st
 import plotly.express as px
+import streamlit as st
+
 
 APP_TITLE = "Reclasificaicon automatica de costos CEMEX - By UDEM"
+
 MODEL_PATH = Path("modelo/modelo_cemex.joblib")
-ENCODERS_PATH = Path("modelo/codificadores_cemex.joblib")
+ARTIFACTS_PATH = Path("modelo/codificadores_cemex.joblib")
+
 MAX_FILE_SIZE_MB = 50
 
-# Orden exacto usado para entrenar el ensamble en el notebook _5modelos_CEMEX.
-FEATURES = [
+# Son las cuatro variables que aparecen en X en el notebook _5modelos_CEMEX.
+ORIGINAL_FEATURES = [
     "Denom.clase de coste",
     "Cl.coste",
     "Costo Estandar",
     "Descrip.clases coste",
 ]
 
-# Nombres de las columnas numéricas que recibió el modelo.
-ENCODED_FEATURES = [
+MODEL_FEATURES = [
     "Denom.clase de coste_num",
     "Cl.coste_num",
     "Costo Estandar_num",
     "Descrip.clases coste_num",
 ]
 
+TARGET_NAME = "Categoría de costo"
 
 st.set_page_config(
     page_title=APP_TITLE,
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="expanded",
 )
 
 
-def stop_with_error(message: str) -> None:
+def stop_error(message: str) -> None:
     st.error(message)
     st.stop()
 
 
-def require_authorized_user() -> None:
+def check_access() -> None:
     """
-    Autenticación OIDC de Streamlit. Se cierra el acceso si no está configurada.
-    Para pruebas locales exclusivamente puede activarse CEMEX_LOCAL_DEV=1.
-    No activar esa variable en un despliegue público.
+    En producción exige inicio de sesión OIDC y correo incluido en
+    st.secrets['auth']['allowed_emails'].
+
+    CEMEX_LOCAL_DEV=1 solo debe usarse para pruebas locales con datos sintéticos.
     """
-    local_dev = os.getenv("CEMEX_LOCAL_DEV", "").strip() == "1"
-    if local_dev:
+    if os.getenv("CEMEX_LOCAL_DEV", "").strip() == "1":
         st.sidebar.warning(
-            "Modo de desarrollo local activo. No utilices este modo en producción "
-            "ni cargues información empresarial real."
+            "Modo local de desarrollo: autenticación omitida. "
+            "No usar en producción ni con información real de CEMEX."
         )
         return
 
     try:
-        auth_config = st.secrets.get("auth", {})
-        allowed_emails = [
-            str(email).strip().lower()
-            for email in auth_config.get("allowed_emails", [])
-            if str(email).strip()
+        allowed = [
+            str(x).strip().lower()
+            for x in st.secrets["auth"]["allowed_emails"]
+            if str(x).strip()
         ]
     except Exception:
-        allowed_emails = []
+        allowed = []
 
-    if not allowed_emails:
-        stop_with_error(
-            "La aplicación no tiene una lista privada de correos autorizados. "
-            "El acceso está bloqueado por seguridad. El administrador debe "
-            "configurar Streamlit Secrets antes de habilitar el uso."
+    if not allowed:
+        stop_error(
+            "Acceso bloqueado: falta configurar la lista privada "
+            "'auth.allowed_emails' en Streamlit Secrets."
         )
 
     try:
@@ -88,9 +89,9 @@ def require_authorized_user() -> None:
         logged_in = False
 
     if not logged_in:
-        st.warning("Debes iniciar sesión con una cuenta previamente autorizada.")
+        st.warning("Inicia sesión con tu cuenta autorizada.")
         st.button(
-            "Iniciar sesión",
+            "Iniciar sesión con Google",
             on_click=st.login,
             args=("google",),
             type="primary",
@@ -98,209 +99,259 @@ def require_authorized_user() -> None:
         st.stop()
 
     email = str(getattr(st.user, "email", "") or "").strip().lower()
-    if not email or email not in allowed_emails:
+
+    if not email or email not in allowed:
         st.error(
-            "Tu cuenta no está autorizada para utilizar esta aplicación. "
-            "Si consideras que se trata de un error, contacta al administrador."
+            "Esta cuenta no está autorizada para utilizar la aplicación. "
+            "Contacta al administrador si necesitas acceso."
         )
         st.button("Cerrar sesión", on_click=st.logout)
         st.stop()
 
-    with st.sidebar:
-        st.caption(f"Sesión iniciada: {email}")
-        st.button("Cerrar sesión", on_click=st.logout)
+    st.sidebar.caption(f"Sesión: {email}")
+    st.sidebar.button("Cerrar sesión", on_click=st.logout)
 
 
 def show_confidentiality_notice() -> bool:
     st.subheader("Aviso de confidencialidad y resguardo de información")
     st.warning(
         """
-**La información procesada mediante esta aplicación es confidencial y de uso
-exclusivamente empresarial.**
+**La información procesada es confidencial y de uso exclusivamente empresarial.**
 
-- Solo deben cargarse archivos para los que el usuario tenga autorización.
-- Los datos se utilizarán únicamente para la clasificación y análisis de costos.
-- No se permite compartir, descargar para fines ajenos, distribuir ni divulgar
-  información a personas o terceros no autorizados.
-- El usuario es responsable de verificar que cuenta con autorización para
-  utilizar la información.
-- No deben cargarse contraseñas, datos personales innecesarios ni archivos
-  ajenos al propósito del proyecto.
-- La información no debe publicarse en repositorios, sitios web o servicios
-  externos sin autorización expresa de CEMEX.
-- La aplicación procesa los archivos en memoria y no implementa almacenamiento
-  permanente de los archivos cargados. Esto no equivale a una garantía de
-  eliminación de registros técnicos, copias de infraestructura o datos retenidos
-  por el proveedor de alojamiento.
+- Solo se deben cargar archivos para los que se cuente con autorización.
+- Los datos se utilizarán únicamente para clasificar y analizar costos.
+- No se permite compartir, distribuir ni divulgar información a personas
+  o terceros no autorizados.
+- El usuario es responsable de contar con autorización para utilizar los archivos.
+- No se deben cargar contraseñas ni información ajena al propósito del proyecto.
+- No se deben publicar archivos SAP, resultados ni modelos en servicios externos
+  sin autorización expresa de CEMEX.
+- La aplicación no escribe intencionalmente el archivo cargado en disco ni en
+  una base de datos. El archivo y el resultado permanecen temporalmente en la
+  sesión para mostrar resultados y permitir la descarga.
+- Esta medida no garantiza por sí sola la eliminación de registros técnicos,
+  cachés, respaldos o datos que pueda retener el proveedor de alojamiento.
 """
     )
-    accepted = st.checkbox(
-        "He leído y acepto el aviso. Confirmo que estoy autorizado(a) para "
-        "utilizar la información que voy a cargar.",
-        value=False,
+
+    return st.checkbox(
+        "He leído y acepto el aviso. Confirmo que tengo autorización para "
+        "utilizar el archivo que voy a cargar."
     )
-    return accepted
 
 
-@st.cache_resource(show_spinner="Cargando el modelo previamente entrenado...")
-def load_artifacts():
-    if not MODEL_PATH.exists():
+@st.cache_resource(show_spinner="Cargando el modelo y sus codificadores...")
+def load_model_and_artifacts():
+    if not MODEL_PATH.is_file():
         raise FileNotFoundError(
-            f"No se encontró {MODEL_PATH}. Coloca ahí el archivo exportado "
-            "desde Google Colab."
+            f"No se encontró el modelo en {MODEL_PATH}. "
+            "Verifica que modelo_cemex.joblib esté dentro de la carpeta modelo."
         )
-    if not ENCODERS_PATH.exists():
+
+    if not ARTIFACTS_PATH.is_file():
         raise FileNotFoundError(
-            f"No se encontró {ENCODERS_PATH}. Debes generar los codificadores "
-            "desde el notebook original y colocarlos en la carpeta modelo/."
+            f"No se encontró {ARTIFACTS_PATH}. "
+            "Sube codificadores_cemex.joblib a la carpeta modelo."
         )
 
     model = joblib.load(MODEL_PATH)
-    artifacts = joblib.load(ENCODERS_PATH)
+    artifacts = joblib.load(ARTIFACTS_PATH)
 
-    required_keys = {"feature_encoders", "target_encoder", "feature_order"}
-    if not required_keys.issubset(artifacts):
+    # El archivo definitivo debe ser el diccionario integrado desde Colab.
+    required = {
+        "feature_encoders",
+        "original_target_encoder",
+        "model_target_encoder",
+        "feature_order",
+    }
+    if not isinstance(artifacts, dict) or not required.issubset(artifacts):
         raise ValueError(
-            "El archivo de codificadores no contiene la estructura esperada. "
-            "Vuelve a generarlo con el bloque incluido en las instrucciones."
+            "El archivo codificadores_cemex.joblib no tiene la estructura "
+            "definitiva. Debe contener feature_encoders, "
+            "original_target_encoder, model_target_encoder y feature_order. "
+            "Vuelve a generarlo con el bloque integrado del notebook 5."
         )
 
-    if list(artifacts["feature_order"]) != ENCODED_FEATURES:
+    feature_encoders = artifacts["feature_encoders"]
+
+    missing_encoders = [
+        col for col in ORIGINAL_FEATURES if col not in feature_encoders
+    ]
+    if missing_encoders:
         raise ValueError(
-            "El orden de variables guardado no coincide con el orden esperado "
-            "por la aplicación. No se ejecutarán predicciones."
+            "Faltan codificadores para las variables predictoras: "
+            + ", ".join(missing_encoders)
         )
 
-    for col in FEATURES:
-        if col not in artifacts["feature_encoders"]:
-            raise ValueError(f"Falta el codificador de la variable: {col}")
+    if TARGET_NAME not in feature_encoders:
+        raise ValueError(
+            "No se encontró el codificador original de la variable objetivo "
+            "'Categoría de costo'."
+        )
+
+    if list(artifacts["feature_order"]) != MODEL_FEATURES:
+        raise ValueError(
+            "El orden de variables guardado no coincide con el utilizado "
+            "por el modelo."
+        )
 
     return model, artifacts
 
 
-def read_uploaded_file(uploaded_file) -> pd.DataFrame:
-    raw = uploaded_file.getvalue()
-    if len(raw) > MAX_FILE_SIZE_MB * 1024 * 1024:
-        raise ValueError(
-            f"El archivo supera el límite de {MAX_FILE_SIZE_MB} MB."
-        )
+def read_file(uploaded_file) -> pd.DataFrame:
+    content = uploaded_file.getvalue()
+
+    if len(content) > MAX_FILE_SIZE_MB * 1024 * 1024:
+        raise ValueError(f"El archivo supera el límite de {MAX_FILE_SIZE_MB} MB.")
 
     suffix = Path(uploaded_file.name).suffix.lower()
+
     if suffix == ".xlsx":
-        df = pd.read_excel(BytesIO(raw), engine="openpyxl")
+        df = pd.read_excel(BytesIO(content), engine="openpyxl")
     elif suffix == ".csv":
-        # Se prueban codificaciones habituales de exportaciones de SAP.
         last_error = None
         for encoding in ("utf-8-sig", "cp1252", "latin-1"):
             try:
-                df = pd.read_csv(BytesIO(raw), encoding=encoding, low_memory=False)
+                df = pd.read_csv(
+                    BytesIO(content),
+                    encoding=encoding,
+                    low_memory=False,
+                )
                 break
             except UnicodeDecodeError as exc:
                 last_error = exc
         else:
             raise ValueError(f"No se pudo leer el CSV: {last_error}")
     else:
-        raise ValueError("Formato no permitido. Carga un archivo .xlsx o .csv.")
+        raise ValueError("Formato no permitido. Utiliza Excel (.xlsx) o CSV.")
 
     if df.empty:
         raise ValueError("El archivo no contiene registros.")
 
     if df.columns.duplicated().any():
         duplicated = df.columns[df.columns.duplicated()].tolist()
-        raise ValueError(f"Hay nombres de columnas duplicados: {duplicated}")
+        raise ValueError(f"El archivo contiene columnas duplicadas: {duplicated}")
 
     return df
 
 
-def encode_new_data(
-    original_df: pd.DataFrame,
-    artifacts: dict,
-) -> tuple[pd.DataFrame, pd.Series, dict]:
-    """
-    Aplica los LabelEncoder originales sin volver a ajustarlos.
-    Los valores no vistos durante el entrenamiento quedan pendientes.
-    """
-    missing = [col for col in FEATURES if col not in original_df.columns]
-    if missing:
+def encode_predictors(df: pd.DataFrame, artifacts: dict):
+    missing_columns = [col for col in ORIGINAL_FEATURES if col not in df.columns]
+    if missing_columns:
         raise ValueError(
-            "Faltan columnas necesarias para el modelo: "
-            + ", ".join(missing)
+            "Faltan columnas requeridas por el modelo: "
+            + ", ".join(missing_columns)
         )
 
     encoders = artifacts["feature_encoders"]
-    encoded = pd.DataFrame(index=original_df.index)
-    valid_mask = pd.Series(True, index=original_df.index)
-    unknown_counts = {}
+    encoded = pd.DataFrame(index=df.index)
+    valid_mask = pd.Series(True, index=df.index)
+    unknown_summary = {}
 
-    for source_col, model_col in zip(FEATURES, ENCODED_FEATURES):
-        encoder = encoders[source_col]
-        values = original_df[source_col].astype(str)
-        mapping = {str(label): int(code) for code, label in enumerate(encoder.classes_)}
+    for original_col, numeric_col in zip(ORIGINAL_FEATURES, MODEL_FEATURES):
+        encoder = encoders[original_col]
+
+        # Reproduce astype(str) usado en el notebook de transformación.
+        values = df[original_col].astype(str)
+
+        # LabelEncoder.classes_ conserva el orden de las categorías aprendidas.
+        mapping = {
+            str(category): int(code)
+            for code, category in enumerate(encoder.classes_)
+        }
+
         mapped = values.map(mapping)
+        unknown = mapped.isna()
 
-        unknown_mask = mapped.isna()
-        unknown_counts[source_col] = int(unknown_mask.sum())
-        valid_mask &= ~unknown_mask
-        encoded[model_col] = mapped
+        unknown_summary[original_col] = int(unknown.sum())
+        valid_mask &= ~unknown
+        encoded[numeric_col] = mapped
 
-    # Solo se predicen filas para las que existen equivalencias aprendidas.
-    return encoded, valid_mask, unknown_counts
+    return encoded, valid_mask, unknown_summary
 
 
-def classify_dataframe(
-    original_df: pd.DataFrame,
-    model,
-    artifacts: dict,
-) -> tuple[pd.DataFrame, dict]:
-    encoded, valid_mask, unknown_counts = encode_new_data(original_df, artifacts)
+def decode_predictions(predicted_codes, artifacts: dict):
+    """
+    Conversión en dos etapas:
+    1) código del modelo -> etiqueta numérica original mediante le.inverse_transform
+    2) código numérico original -> texto mediante el LabelEncoder del notebook 3
+    """
+    model_target_encoder = artifacts["model_target_encoder"]
+    original_target_encoder = artifacts["original_target_encoder"]
 
-    result = original_df.copy()
-    target_col = "Categoría de costo"
+    predicted_codes = np.asarray(predicted_codes).astype(int)
 
-    # Si SAP ya contiene una columna con ese nombre, se conserva bajo otro nombre.
-    if target_col in result.columns:
-        backup_name = "Categoría de costo original"
-        if backup_name in result.columns:
-            backup_name = "Categoría de costo original (SAP)"
-        result = result.rename(columns={target_col: backup_name})
+    original_numeric_codes = model_target_encoder.inverse_transform(
+        predicted_codes
+    )
 
-    predictions_text = pd.Series(pd.NA, index=result.index, dtype="object")
-    valid_positions = valid_mask[valid_mask].index
+    original_numeric_codes = np.asarray(original_numeric_codes).astype(int)
 
-    if len(valid_positions) > 0:
-        X_new = encoded.loc[valid_positions, ENCODED_FEATURES].astype("int64")
-        predicted_codes = model.predict(X_new)
-        target_encoder = artifacts["target_encoder"]
-        predicted_labels = target_encoder.inverse_transform(
-            pd.Series(predicted_codes).astype(int).to_numpy()
+    category_names = original_target_encoder.inverse_transform(
+        original_numeric_codes
+    )
+
+    return category_names
+
+
+def classify(df_original: pd.DataFrame, model, artifacts: dict):
+    encoded, valid_mask, unknown_summary = encode_predictors(
+        df_original,
+        artifacts,
+    )
+
+    # Copia exacta de las columnas originales; no se reordena ni elimina filas.
+    result = df_original.copy()
+
+    # Evitar sobrescribir una columna que ya venga en el archivo de SAP.
+    if TARGET_NAME in result.columns:
+        backup_col = "Categoría de costo original (SAP)"
+        if backup_col in result.columns:
+            raise ValueError(
+                "El archivo ya contiene 'Categoría de costo' y "
+                "'Categoría de costo original (SAP)'. Revisa los encabezados."
+            )
+        result = result.rename(columns={TARGET_NAME: backup_col})
+
+    predictions = pd.Series(pd.NA, index=result.index, dtype="object")
+
+    valid_index = valid_mask[valid_mask].index
+    if len(valid_index) > 0:
+        X_new = encoded.loc[valid_index, MODEL_FEATURES].astype("int64")
+        model_predictions = model.predict(X_new)
+        predictions.loc[valid_index] = decode_predictions(
+            model_predictions,
+            artifacts,
         )
-        predictions_text.loc[valid_positions] = predicted_labels
 
-    result[target_col] = predictions_text
-    result["Estado de clasificación"] = "Clasificado"
-    result.loc[~valid_mask, "Estado de clasificación"] = (
-        "Pendiente: categoría de entrada no vista en entrenamiento"
+    result[TARGET_NAME] = predictions
+    result["Estado de clasificación"] = np.where(
+        valid_mask,
+        "Clasificado",
+        "Pendiente: valor no reconocido en una variable predictora",
     )
 
     stats = {
         "total": len(result),
         "clasificados": int(valid_mask.sum()),
         "pendientes": int((~valid_mask).sum()),
-        "unknown_counts": unknown_counts,
+        "unknown_summary": unknown_summary,
     }
+
     return result, stats
 
 
-def build_excel(result: pd.DataFrame) -> bytes:
+def make_excel(result: pd.DataFrame) -> bytes:
     output = BytesIO()
+
     summary = (
-        result["Categoría de costo"]
+        result[TARGET_NAME]
         .fillna("Pendiente de clasificación")
         .value_counts(dropna=False)
-        .rename_axis("Categoría de costo")
+        .rename_axis(TARGET_NAME)
         .reset_index(name="Cantidad de registros")
     )
-    summary["Porcentaje"] = (
+    summary["Porcentaje sobre total"] = (
         summary["Cantidad de registros"] / max(len(result), 1) * 100
     ).round(2)
 
@@ -312,7 +363,7 @@ def build_excel(result: pd.DataFrame) -> bytes:
     return output.getvalue()
 
 
-def show_dashboard(result: pd.DataFrame, stats: dict) -> None:
+def show_dashboard(result: pd.DataFrame, stats: dict):
     st.subheader("Dashboard de clasificación")
 
     c1, c2, c3 = st.columns(3)
@@ -320,29 +371,28 @@ def show_dashboard(result: pd.DataFrame, stats: dict) -> None:
     c2.metric("Registros clasificados", f"{stats['clasificados']:,}")
     c3.metric("Registros pendientes", f"{stats['pendientes']:,}")
 
-    classified = result["Categoría de costo"].dropna()
+    classified = result[TARGET_NAME].dropna()
     if classified.empty:
-        st.info("No hay registros clasificados para mostrar en las gráficas.")
+        st.info("No hay registros clasificados para mostrar.")
         return
 
     summary = (
         classified.value_counts()
-        .rename_axis("Categoría de costo")
+        .rename_axis(TARGET_NAME)
         .reset_index(name="Cantidad")
     )
-    summary["Porcentaje"] = summary["Cantidad"] / stats["total"] * 100
+    summary["Porcentaje sobre total"] = (
+        summary["Cantidad"] / max(stats["total"], 1) * 100
+    ).round(2)
 
-    st.dataframe(
-        summary.style.format({"Porcentaje": "{:.2f}%"}),
-        use_container_width=True,
-        hide_index=True,
-    )
+    st.dataframe(summary, use_container_width=True, hide_index=True)
 
     left, right = st.columns(2)
+
     with left:
         fig_bar = px.bar(
             summary.sort_values("Cantidad", ascending=False),
-            x="Categoría de costo",
+            x=TARGET_NAME,
             y="Cantidad",
             title="Cantidad de registros por categoría",
             text="Cantidad",
@@ -353,26 +403,25 @@ def show_dashboard(result: pd.DataFrame, stats: dict) -> None:
     with right:
         fig_pie = px.pie(
             summary,
-            names="Categoría de costo",
+            names=TARGET_NAME,
             values="Cantidad",
-            title="Distribución porcentual de categorías",
+            title="Distribución de categorías",
         )
         st.plotly_chart(fig_pie, use_container_width=True)
 
 
 def main():
-    require_authorized_user()
+    check_access()
 
     st.title(APP_TITLE)
     st.write(
-        "Herramienta para clasificar registros de costos operativos de SAP "
-        "mediante el modelo de Machine Learning Ensamble Soft Voting "
-        "previamente entrenado."
+        "Aplicación para clasificar registros de costos operativos descargados "
+        "de SAP mediante el modelo Ensamble Soft Voting previamente entrenado."
     )
-
     st.info(
-        "La aplicación utiliza un modelo ya entrenado. No realiza entrenamiento "
-        "ni balanceo SMOTE al cargar archivos nuevos."
+        "El modelo ya está entrenado. Esta aplicación únicamente transforma "
+        "las variables de entrada y realiza predicciones; no ejecuta "
+        "entrenamiento ni SMOTE."
     )
 
     accepted = show_confidentiality_notice()
@@ -381,81 +430,79 @@ def main():
         st.stop()
 
     try:
-        model, artifacts = load_artifacts()
+        model, artifacts = load_model_and_artifacts()
     except Exception as exc:
-        stop_with_error(f"No fue posible cargar los artefactos del modelo: {exc}")
+        stop_error(f"No fue posible cargar el modelo o sus codificadores: {exc}")
 
-    st.subheader("1. Carga de base de datos SAP")
+    st.subheader("1. Cargar base de datos SAP")
     uploaded = st.file_uploader(
         "Selecciona un archivo Excel (.xlsx) o CSV",
         type=["xlsx", "csv"],
-        help=f"Tamaño máximo: {MAX_FILE_SIZE_MB} MB.",
+        help=f"Tamaño máximo permitido: {MAX_FILE_SIZE_MB} MB.",
     )
 
     if uploaded is None:
         st.caption(
-            "La aplicación necesita las columnas originales correspondientes "
-            "a las cuatro variables explicativas utilizadas durante el entrenamiento."
+            "El archivo debe contener estas cuatro columnas: "
+            + ", ".join(ORIGINAL_FEATURES)
         )
         return
 
     try:
-        original_df = read_uploaded_file(uploaded)
+        df_original = read_file(uploaded)
         st.success(
-            f"Archivo leído correctamente: {len(original_df):,} registros "
-            f"y {len(original_df.columns):,} columnas."
+            f"Archivo leído: {len(df_original):,} registros y "
+            f"{len(df_original.columns):,} columnas."
         )
+
         with st.expander("Vista previa del archivo original"):
-            st.dataframe(original_df.head(20), use_container_width=True)
+            st.dataframe(df_original.head(20), use_container_width=True)
 
         if st.button("Clasificar registros", type="primary"):
-            with st.spinner("Aplicando codificadores y generando predicciones..."):
-                result, stats = classify_dataframe(original_df, model, artifacts)
+            with st.spinner("Transformando variables y clasificando registros..."):
+                result, stats = classify(df_original, model, artifacts)
 
             st.session_state["cemex_result"] = result
             st.session_state["cemex_stats"] = stats
             st.session_state["cemex_filename"] = uploaded.name
 
     except Exception as exc:
-        stop_with_error(f"No fue posible procesar el archivo: {exc}")
+        stop_error(f"No fue posible procesar el archivo: {exc}")
 
-    if "cemex_result" in st.session_state:
-        result = st.session_state["cemex_result"]
-        stats = st.session_state["cemex_stats"]
+    if "cemex_result" not in st.session_state:
+        return
 
-        st.divider()
-        show_dashboard(result, stats)
+    result = st.session_state["cemex_result"]
+    stats = st.session_state["cemex_stats"]
 
-        if stats["pendientes"] > 0:
-            st.warning(
-                f"{stats['pendientes']:,} registros quedaron pendientes porque "
-                "una o más variables contienen valores que no aparecieron en "
-                "el conjunto de entrenamiento. No se asignó una categoría "
-                "inventada. Revisa los valores y actualiza los codificadores "
-                "solo mediante un proceso controlado."
-            )
-            st.write("Cantidad de valores no reconocidos por variable:")
-            st.json(stats["unknown_counts"])
+    st.divider()
+    show_dashboard(result, stats)
 
-        st.subheader("Resultado de la clasificación")
-        st.dataframe(result.head(100), use_container_width=True)
-
-        output_bytes = build_excel(result)
-        original_name = Path(st.session_state.get("cemex_filename", "SAP")).stem
-        output_name = f"Reclasificacion_Costos_CEMEX_{original_name}.xlsx"
-
-        st.download_button(
-            label="Descargar Excel clasificado",
-            data=output_bytes,
-            file_name=output_name,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            type="primary",
+    if stats["pendientes"] > 0:
+        st.warning(
+            f"{stats['pendientes']:,} registros quedaron pendientes porque "
+            "contienen valores que no aparecieron en el entrenamiento. "
+            "No se inventaron códigos ni se asignaron categorías."
         )
+        st.write("Valores no reconocidos por variable:")
+        st.json(stats["unknown_summary"])
 
-        st.caption(
-            "El Excel incluye la hoja 'Clasificacion' con las columnas originales "
-            "y el resultado, y la hoja 'Resumen' con el conteo por categoría."
-        )
+    st.subheader("Resultado de la clasificación")
+    st.dataframe(result.head(100), use_container_width=True)
+
+    excel_bytes = make_excel(result)
+    original_stem = Path(
+        st.session_state.get("cemex_filename", "SAP")
+    ).stem
+    download_name = f"Reclasificacion_Costos_CEMEX_{original_stem}.xlsx"
+
+    st.download_button(
+        "Descargar Excel clasificado",
+        data=excel_bytes,
+        file_name=download_name,
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        type="primary",
+    )
 
 
 if __name__ == "__main__":
