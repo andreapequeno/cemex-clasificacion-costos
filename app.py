@@ -56,61 +56,10 @@ def stop_error(message: str) -> None:
 
 def check_access() -> None:
     """
-    En producción exige inicio de sesión OIDC y correo incluido en
-    st.secrets['auth']['allowed_emails'].
-
-    CEMEX_LOCAL_DEV=1 solo debe usarse para pruebas locales con datos sintéticos.
+    El acceso a la aplicación se administra mediante
+    Streamlit Community Cloud - Sharing.
     """
-    if os.getenv("CEMEX_LOCAL_DEV", "").strip() == "1":
-        st.sidebar.warning(
-            "Modo local de desarrollo: autenticación omitida. "
-            "No usar en producción ni con información real de CEMEX."
-        )
-        return
-
-    try:
-        allowed = [
-            str(x).strip().lower()
-            for x in st.secrets["auth"]["allowed_emails"]
-            if str(x).strip()
-        ]
-    except Exception:
-        allowed = []
-
-    if not allowed:
-        stop_error(
-            "Acceso bloqueado: falta configurar la lista privada "
-            "'auth.allowed_emails' en Streamlit Secrets."
-        )
-
-    try:
-        logged_in = bool(st.user.is_logged_in)
-    except Exception:
-        logged_in = False
-
-    if not logged_in:
-        st.warning("Inicia sesión con tu cuenta autorizada.")
-        st.button(
-            "Iniciar sesión con Google",
-            on_click=st.login,
-            args=("google",),
-            type="primary",
-        )
-        st.stop()
-
-    email = str(getattr(st.user, "email", "") or "").strip().lower()
-
-    if not email or email not in allowed:
-        st.error(
-            "Esta cuenta no está autorizada para utilizar la aplicación. "
-            "Contacta al administrador si necesitas acceso."
-        )
-        st.button("Cerrar sesión", on_click=st.logout)
-        st.stop()
-
-    st.sidebar.caption(f"Sesión: {email}")
-    st.sidebar.button("Cerrar sesión", on_click=st.logout)
-
+    return
 
 def show_confidentiality_notice() -> bool:
     st.subheader("Aviso de confidencialidad y resguardo de información")
