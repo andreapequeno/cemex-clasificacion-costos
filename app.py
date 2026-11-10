@@ -368,8 +368,7 @@ def main():
 
     st.title(APP_TITLE)
     st.write(
-        "Aplicación para clasificar registros de costos "Otros" del área de transporte propio, descargados de SAP, mediante el modelo Ensamble previamente entrenado con datos históricos del 2025."
-    )
+        "Aplicación para clasificar registros de costos 'Otros' del área de transporte propio, descargados de SAP, mediante el modelo Ensamble previamente entrenado con datos históricos del 2025."
     st.info(
         "El modelo ya está entrenado. Esta aplicación únicamente transforma "
         "las variables de entrada y realiza predicciones; no ejecuta "
