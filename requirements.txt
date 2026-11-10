@@ -15,3 +15,5 @@ openpyxl
 
 streamlit[auth]
 httpx
+
+xgboost==3.2.0
