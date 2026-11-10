@@ -1,0 +1,10 @@
+streamlit>=1.42,<2
+pandas>=2.0,<3
+numpy>=1.24
+scikit-learn
+imbalanced-learn
+xgboost
+lightgbm
+joblib
+openpyxl
+plotly
