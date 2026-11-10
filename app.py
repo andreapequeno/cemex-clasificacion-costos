@@ -416,6 +416,65 @@ def show_dashboard(result: pd.DataFrame, stats: dict):
         )
         st.plotly_chart(fig_pie, use_container_width=True)
 
+
+def show_manual_classification(result, artifacts):
+    st.subheader("Clasificación manual de registros pendientes")
+
+    pending_indices = result.index[
+        result["Estado de clasificación"].str.startswith(
+            "Pendiente", na=False
+        )
+    ].tolist()
+
+    if not pending_indices:
+        st.success("Todos los registros están clasificados.")
+        return result
+
+    categories = [
+        str(category)
+        for category in artifacts["original_target_encoder"].classes_
+    ]
+
+    st.info(
+        f"Hay {len(pending_indices)} registros pendientes. "
+        "Puedes asignarles una categoría manualmente."
+    )
+
+    for idx in pending_indices:
+        with st.expander(f"Registro pendiente: {idx}"):
+            # Mostrar los datos originales del registro
+            st.dataframe(
+                result.loc[[idx]].drop(
+                    columns=[TARGET_NAME, "Estado de clasificación"],
+                    errors="ignore"
+                ),
+                use_container_width=True
+            )
+
+            selected_category = st.selectbox(
+                "Selecciona la categoría correspondiente:",
+                options=["Seleccionar categoría..."] + categories,
+                key=f"manual_category_{idx}"
+            )
+
+            if st.button(
+                "Guardar clasificación manual",
+                key=f"save_manual_{idx}"
+            ):
+                if selected_category == "Seleccionar categoría...":
+                    st.warning("Primero selecciona una categoría.")
+                else:
+                    result.loc[idx, TARGET_NAME] = selected_category
+                    result.loc[idx, "Estado de clasificación"] = (
+                        "Clasificado manualmente"
+                    )
+
+                    st.session_state["cemex_result"] = result
+                    st.rerun()
+
+    return result
+
+
 def main():
     check_access()
 
@@ -472,11 +531,24 @@ def main():
     if "cemex_result" not in st.session_state:
         return
 
+
     result = st.session_state["cemex_result"]
     stats = st.session_state["cemex_stats"]
 
+    # Permitir clasificar manualmente los registros pendientes
+    result = show_manual_classification(result, artifacts)
+
+    # Actualizar los indicadores después de la clasificación manual
+    stats["total"] = len(result)
+    stats["clasificados"] = int(result[TARGET_NAME].notna().sum())
+    stats["pendientes"] = int(result[TARGET_NAME].isna().sum())
+
+    st.session_state["cemex_result"] = result
+    st.session_state["cemex_stats"] = stats
+
     st.divider()
     show_dashboard(result, stats)
+
 
 
     if stats["pendientes"] > 0:
