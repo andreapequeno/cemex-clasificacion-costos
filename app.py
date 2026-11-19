@@ -384,7 +384,118 @@ def show_dashboard(result: pd.DataFrame, stats: dict):
     )
 
    
+
     st.subheader("Desglose de registros por categoría")
+
+    categorias_disponibles = [
+        str(category)
+        for category in artifacts["original_target_encoder"].classes_
+    ]
+
+    categorias_resumen = summary[TARGET_NAME].tolist()
+
+    categoria_seleccionada = st.selectbox(
+        "Selecciona una categoría para consultar sus registros:",
+        options=categorias_resumen,
+        key="categoria_desglose"
+    )
+
+    # Identificar la columna del monto
+    actual_col = next(
+        (
+            col for col in result.columns
+            if str(col).strip().casefold() in ["actual", "monto"]
+        ),
+        None
+    )
+
+    if actual_col is not None:
+
+        detalle = result[
+            result[TARGET_NAME] == categoria_seleccionada
+        ].copy()
+
+        detalle[actual_col] = pd.to_numeric(
+            detalle[actual_col], errors="coerce"
+        ).fillna(0)
+
+        # Ordenar de mayor a menor monto
+        detalle = detalle.sort_values(
+            actual_col,
+            ascending=False
+        )
+
+        st.write(
+            f"Registros de la categoría: "
+            f"**{categoria_seleccionada}**"
+        )
+
+        st.metric(
+            "Cantidad de registros",
+            f"{len(detalle):,}"
+        )
+
+        # Guardar las categorías originales para detectar cambios
+        categorias_originales = detalle[TARGET_NAME].copy()
+
+        st.caption(
+            "Puedes modificar la categoría directamente desde la última "
+            "columna de la tabla. Las demás columnas son de solo lectura."
+        )
+
+        detalle_editado = st.data_editor(
+            detalle,
+            column_config={
+                TARGET_NAME: st.column_config.SelectboxColumn(
+                    "Categoría de costo",
+                    help="Selecciona la categoría correcta para este registro.",
+                    options=categorias_disponibles,
+                    required=True
+                )
+            },
+            disabled=[
+                col for col in detalle.columns
+                if col != TARGET_NAME
+            ],
+            use_container_width=True,
+            hide_index=False,
+            num_rows="fixed",
+            key=f"editor_desglose_{categoria_seleccionada}"
+        )
+
+        if st.button(
+            "Guardar correcciones de categoría",
+            type="primary",
+            key=f"guardar_desglose_{categoria_seleccionada}"
+        ):
+
+            cambios = (
+                detalle_editado[TARGET_NAME].astype(str)
+                != categorias_originales.astype(str)
+            )
+
+            indices_modificados = detalle_editado.index[cambios]
+
+            for idx in indices_modificados:
+                result.loc[idx, TARGET_NAME] = (
+                    detalle_editado.loc[idx, TARGET_NAME]
+                )
+
+                result.loc[idx, "Estado de clasificación"] = (
+                    "Clasificado manualmente"
+                )
+
+            st.session_state["cemex_result"] = result
+
+            st.success(
+                f"Se actualizaron {len(indices_modificados)} registros."
+            )
+
+            st.rerun()
+
+    else:
+        st.warning("No se encontró la columna Actual o Monto.")
+
 
     categorias_disponibles = summary[TARGET_NAME].tolist()
 
