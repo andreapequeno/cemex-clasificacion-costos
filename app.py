@@ -316,7 +316,7 @@ def make_excel(result: pd.DataFrame) -> bytes:
     return output.getvalue()
 
 
-def show_dashboard(result: pd.DataFrame, stats: dict):
+def show_dashboard(result: pd.DataFrame, stats: dict, artifacts: dict):
     st.subheader("Dashboard de clasificación")
 
     c1, c2, c3 = st.columns(3)
@@ -709,7 +709,7 @@ def main():
     st.session_state["cemex_stats"] = stats
 
     st.divider()
-    show_dashboard(result, stats)
+    show_dashboard(result, stats, artifacts)
 
 
 
