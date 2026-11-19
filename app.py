@@ -497,14 +497,6 @@ def show_dashboard(result: pd.DataFrame, stats: dict, artifacts: dict):
         st.warning("No se encontró la columna Actual o Monto.")
 
 
-    categorias_disponibles = summary[TARGET_NAME].tolist()
-
-    categoria_seleccionada = st.selectbox(
-        "Selecciona una categoría para consultar sus registros:",
-        options=categorias_disponibles,
-        key="categoria_desglose"
-    )
-
     # Identificar la columna del monto
     actual_col = next(
         (
